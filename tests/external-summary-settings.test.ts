@@ -367,3 +367,54 @@ test("autoFold set on a disabled chain warns instead of silently no-oping", () =
         setLogCapture(null);
     }
 });
+
+// #2984: a derived summary endpoint inherits its upstream's scheme, so a LAN
+// upstream could only be compressed through loopback. Same opt-in as intake;
+// public space and the CGNAT pool keep the original refusal.
+test("#2984 a private upstream derives a usable summary endpoint once the operator opts in", () => {
+    const prev = process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+    const lanRecipes: Record<string, NamedProviderRecipe> = {
+        ...recipes,
+        lan: { baseUrl: "http://192.168.124.39:8001/v1", api: "openai", apiKeyEnv: "LAN_KEY", models: { "lan-small": {} } },
+    };
+    const chain = parseExternalSummaryChain({ enabled: true, targets: ["lan/lan-small"] });
+    try {
+        delete process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+        assert.throws(() => expandExternalSummaryChain(chain, lanRecipes), /is not usable/);
+
+        process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS = "1";
+        const expanded = expandExternalSummaryChain(chain, lanRecipes);
+        assert.deepEqual(parseExternalSummarySettings(expanded).targets.map((t) => t.url), ["http://192.168.124.39:8001/v1/chat/completions"]);
+        for (const baseUrl of ["http://8.8.8.8:8000/v1", "http://100.64.0.1:11434/v1"]) {
+            assert.throws(() => expandExternalSummaryChain(chain, { ...lanRecipes, lan: { ...lanRecipes.lan, baseUrl } }), /is not usable/, baseUrl);
+        }
+    } finally {
+        if (prev === undefined) delete process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+        else process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS = prev;
+    }
+});
+
+// #2984: the explicit-target form is the second copy of that gate, so it has to
+// move with the first one. Only the host scheme changes — credentials and the
+// proxy-recursion ban are untouched.
+test("#2984 an explicit private summary target parses once the operator opts in", () => {
+    const prev = process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+    const target = (url: string) => ({
+        enabled: true,
+        targets: [{ name: "lan", protocol: "openai", url, model: "lan-small", apiKey: "k", contextWindow: 8_000, outputTokens: 1_024, stream: false }],
+    });
+    try {
+        delete process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+        assert.throws(() => parseExternalSummarySettings(target("http://192.168.124.39:8001/v1/chat/completions"), { inlineKeys: true }), /Invalid external summary endpoint/);
+
+        process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS = "1";
+        assert.equal(parseExternalSummarySettings(target("http://192.168.124.39:8001/v1/chat/completions"), { inlineKeys: true }).targets.length, 1);
+        assert.equal(parseExternalSummarySettings(target("http://[fd00::12]:8000/v1/chat/completions"), { inlineKeys: true }).targets.length, 1);
+        for (const url of ["http://8.8.8.8:8000/v1/chat/completions", "http://100.64.0.1:11434/v1/chat/completions", "http://user:pw@10.0.0.9:8000/v1/chat/completions"]) {
+            assert.throws(() => parseExternalSummarySettings(target(url), { inlineKeys: true }), /Invalid external summary endpoint/, url);
+        }
+    } finally {
+        if (prev === undefined) delete process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+        else process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS = prev;
+    }
+});

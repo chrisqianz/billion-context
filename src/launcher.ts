@@ -37,6 +37,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { execFileSync, spawn, spawnSync, type StdioOptions } from "node:child_process";
 import { DEFAULT_MITM_DOMAINS } from "./mitm.js";
+import { isPrivateHost } from "./private-host.js";
 import {
     claimStartingMarker,
     clearStartingMarker,
@@ -1325,43 +1326,17 @@ export function launcherDirectUrl(env: NodeJS.ProcessEnv): boolean {
 /** True when the host points at self-hosted inference: loopback, RFC1918,
  *  link-local, IPv6 ULA, or an mDNS/LAN name. Those servers (sglang/vllm/
  *  ollama/llama.cpp) do not understand codex's `namespace` tool type, so
- *  MCP-injected tools would be silently invisible to the model. */
+ *  MCP-injected tools would be silently invisible to the model. The predicate
+ *  itself lives in src/private-host.ts (#2984) where the agent-registry intake
+ *  gates read the same answer; this wrapper keeps the raw-URL form. */
 export function isPrivateUpstreamHost(raw: string): boolean {
     let host: string;
     try {
-        host = new URL(raw).hostname.toLowerCase();
+        host = new URL(raw).hostname;
     } catch {
         return false;
     }
-    if (host === "localhost" || host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".internal")) return true;
-    if (host.startsWith("[")) host = host.slice(1, -1);
-    if (host.includes(":")) {
-        if (host === "::1" || host === "::") return true;
-        const first = host.split(":")[0] ?? "";
-        if (/^f[cd]/.test(first)) return true;
-        if (/^fe[89ab]/.test(first)) return true;
-        const dotted = /::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host);
-        if (dotted && isPrivateIPv4(dotted[1]!)) return true;
-        const hex = /::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
-        if (hex) {
-            const w1 = Number.parseInt(hex[1]!, 16);
-            const w2 = Number.parseInt(hex[2]!, 16);
-            if (isPrivateIPv4(`${w1 >> 8}.${w1 & 0xff}.${w2 >> 8}.${w2 & 0xff}`)) return true;
-        }
-        return false;
-    }
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return isPrivateIPv4(host);
-    return false;
-}
-
-function isPrivateIPv4(host: string): boolean {
-    const a = Number.parseInt(host.split(".")[0] ?? "", 10);
-    const b = Number.parseInt(host.split(".")[1] ?? "", 10);
-    if (a === 127 || a === 10 || a === 0) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 169 && b === 254) return true;
-    return false;
+    return isPrivateHost(host);
 }
 
 /** Plugin-in-launcher MCP injection is ON by default for claude/codex

@@ -1742,6 +1742,12 @@ type FileConfig = {
         proxyKeepAliveMaxMs?: number;
         /** Post-response close linger budget (#1982; was env-only BILI_POST_RESPONSE_LINGER_MS; default 5000). */
         postResponseLingerMs?: number;
+        /** Admit PRIVATE (RFC1918 / ULA / link-local / `*.local|.lan|.internal`)
+         *  upstream hosts over plaintext http:// wherever loopback is admitted —
+         *  self-hosted vLLM/SGLang/Ollama/llama.cpp servers have no TLS (#2984;
+         *  env BILI_ALLOW_PRIVATE_HTTP_PROVIDERS; default false). Public hosts
+         *  stay refused either way. Resolved by src/knobs.ts. */
+        allowPrivateHttpProviders?: boolean;
     };
     /** Session persistence knobs (#2030) — was BILI_PERSIST_* env-only. */
     persist?: {

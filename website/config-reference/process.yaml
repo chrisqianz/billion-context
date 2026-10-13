@@ -103,6 +103,14 @@ entries:
     group: process
     desc_en: "Graceful-close budget for proxy-initiated closes after the response completed: the socket is held waiting for the peer's FIN/TLS close_notify and destroyed at the deadline (reason=linger-backstop)."
     desc_zh: "代理主动发起的响应后关闭的优雅关闭预算：socket 挂起等待对端 FIN/TLS close_notify，到点销毁（reason=linger-backstop）。"
+  - key: network.allowPrivateHttpProviders
+    type: boolean
+    default: "false"
+    env: BILI_ALLOW_PRIVATE_HTTP_PROVIDERS
+    group: process
+    desc_en: "Accept plaintext HTTP for an agent provider baseUrl or an external summary target whose host is private — RFC1918, IPv6 ULA, link-local, or a .local / .lan / .internal name. Loopback always works without it; public addresses, the 100.64/10 carrier-NAT pool, embedded credentials and proxy recursion stay refused either way. Intended for a LAN inference server such as vLLM or Ollama that does not terminate TLS."
+    desc_zh: "允许主机是私网地址的 agent provider baseUrl 或外部摘要目标使用明文 HTTP——RFC1918、IPv6 ULA、link-local，或 .local / .lan / .internal 名称。回环地址无需开启即可使用；公网地址、100.64/10 CGNAT 段、URL 内嵌凭据与代理递归在开关开闭两侧都继续被拒。面向不提供 TLS 的局域网推理服务（vLLM、Ollama）。"
+
   - key: persist
     type: object
     default: "{} (all defaults)"

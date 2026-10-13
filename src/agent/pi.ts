@@ -16,6 +16,7 @@ import { wirePiSubagents } from "./pi-subagents.js";
 import { asciiHeaderValue, detectProxyBase, destinationRoutedThroughProxy, fetchManifest, forwardTool, fetchStatus, fetchProxyVersion, postIdentityRegister, reportRuntimeInfoOnChange, armedIdleNotice, noSessionWarning, nonHttpProvidersFromEnv, type ForwardedToolResult, type ManifestTool } from "./shared.js";
 import { createForkAdopter } from "./fork-adopt.js";
 import { logHostEvent } from "./host-log.js";
+import { plainHttpHostAllowed } from "../knobs.js";
 
 export type Ctx = {
     sessionManager?: { getSessionId?: () => string; getHeader?: () => unknown; getBranch?: () => unknown } | undefined;
@@ -141,11 +142,11 @@ const AGENT_PROVIDER_API: Record<string, "anthropic" | "openai" | "responses" | 
     "google-generative-ai": "google",
 };
 
-// #2585: mirrors the server-side scheme rule (src/agent-providers.ts) — a
-// plain-HTTP non-loopback baseUrl would be refused there (the resolved apiKey
-// must not travel over plaintext), so pre-skip it and name the skip locally.
-// Keep in lockstep with the server's loopback list.
-const AGENT_PROVIDER_LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+// #2585: a plain-HTTP baseUrl that bili would refuse server-side (the resolved
+// apiKey must not travel over plaintext) is pre-skipped here and the skip named
+// locally. The predicate is the SHARED one from knobs.ts (#2984) — the plugin and
+// the proxy now agree by construction, including when network
+// .allowPrivateHttpProviders admits a LAN inference host.
 
 /** #2336: report the host's own provider dialing recipes — baseUrl + api +
  *  the RESOLVED api key, in memory only — so summary chains can reference
@@ -197,8 +198,8 @@ export async function reportAgentProviders(ctx: Ctx, agent: string): Promise<boo
             // #2585: plain-HTTP non-loopback would be refused server-side (key
             // over plaintext) — pre-skip and say so. No url in the warn: a
             // baseUrl may carry inline credentials.
-            if (u.protocol === "http:" && !AGENT_PROVIDER_LOOPBACK_HOSTS.includes(u.hostname)) {
-                logHostEvent("warn", "[native-client]", `bili-plugin(${agent}): agent-providers: provider "${id}" not reported — plain-HTTP non-loopback baseUrl (bili refuses to register it, its apiKey would travel over plaintext) (#2585)`);
+            if (u.protocol === "http:" && !plainHttpHostAllowed(u.hostname)) {
+                logHostEvent("warn", "[native-client]", `bili-plugin(${agent}): agent-providers: provider "${id}" not reported — plain-HTTP non-loopback baseUrl (bili refuses to register it, its apiKey would travel over plaintext; a private/LAN host can be admitted with network.allowPrivateHttpProviders) (#2585)`);
                 continue;
             }
             selfLoop = u.origin === new URL(proxyBase).origin;

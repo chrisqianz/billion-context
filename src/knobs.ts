@@ -23,6 +23,7 @@
 import path from "node:path";
 import { stateDir } from "./paths.js";
 import { loadConfigFile } from "./config.js";
+import { isLoopbackHttpHost, isPrivateHost } from "./private-host.js";
 import { UPSTREAM_TIMEOUT_MS, REPLAY_MAX_ATTEMPTS, REPLAY_BASE_DELAY_MS } from "./fetch-util.js";
 import { PROXY_KEEPALIVE_MAX_MS } from "./upstream-proxy.js";
 
@@ -158,6 +159,24 @@ const MITM_HANDSHAKE_TIMEOUT_MS_DEFAULT = 10_000;
 export function mitmHandshakeTimeoutMs(): number {
     const v = tInt("BILI_MITM_HANDSHAKE_TIMEOUT_MS", loadConfigFile().mitm?.handshakeTimeoutMs);
     return Number.isFinite(v) && v > 0 ? Math.floor(v) : MITM_HANDSHAKE_TIMEOUT_MS_DEFAULT;
+}
+
+/** BILI_ALLOW_PRIVATE_HTTP_PROVIDERS > network.allowPrivateHttpProviders > false
+ *  (#2984). Self-hosted inference (vLLM / SGLang / Ollama / llama.cpp) listens
+ *  on a LAN address over plaintext HTTP with no TLS; this admits those hosts
+ *  where loopback is admitted today. Public hosts stay refused either way — an
+ *  apiKey must never travel the open internet unencrypted. */
+export function allowPrivateHttpProviders(): boolean {
+    const envRaw = process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+    if (envRaw !== undefined) return envRaw === "1" || envRaw === "true";
+    return fileNetwork().allowPrivateHttpProviders === true;
+}
+
+/** May `hostname` be dialled over PLAINTEXT http://? Loopback always; private
+ *  / LAN hosts only with #2984's switch ON. The single predicate behind every
+ *  agent-registry / summary-chain scheme gate (#2585, #2984). */
+export function plainHttpHostAllowed(hostname: string): boolean {
+    return isLoopbackHttpHost(hostname) || (allowPrivateHttpProviders() && isPrivateHost(hostname));
 }
 
 // --- session persistence (was BILI_PERSIST_* env-only) ---

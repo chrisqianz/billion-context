@@ -445,3 +445,104 @@ test("#2336 pi reportAgentProviders: no proxy base yet -> false (retry), missing
         else process.env.BILLION_CONTEXT_PROXY = prevProxy;
     }
 });
+
+// #2984: intake is the one place that decides whether a LAN inference server can
+// be registered at all. Default OFF keeps the #2585 refusal word for word (the
+// wording above is pinned by the tests around it); the opt-in buys reachability,
+// not a weaker policy — public space, the CGNAT pool bili never called private,
+// embedded credentials and proxy recursion keep the original refusal.
+test("#2984 private baseUrls are refused by default and registered once the operator opts in", () => {
+    const prev = process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+    const report = (baseUrl: string) => ({
+        agent: "pi",
+        providers: { lan: { baseUrl, api: "openai", apiKey: "agent-resolved-key", models: { "qwen3-coder": {} } } },
+    });
+    const privateBases = ["http://192.168.124.39:8001/v1", "http://10.1.2.3:8000/v1", "http://[fd00::12]:8000/v1", "http://gpu.local:11434/v1"];
+    try {
+        delete process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+        for (const baseUrl of privateBases) {
+            const { registered, skipped } = parseAgentProviderReport(report(baseUrl));
+            assert.deepEqual(Object.keys(registered), [], `${baseUrl} stays refused with the switch off`);
+            assert.equal(skipped.length, 1, baseUrl);
+            assert.match(skipped[0].reason, /must be HTTPS \(or loopback HTTP\)/, "refusal wording unchanged");
+        }
+        process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS = "1";
+        for (const baseUrl of privateBases) {
+            const { registered, skipped } = parseAgentProviderReport(report(baseUrl));
+            assert.deepEqual(Object.keys(registered), ["lan"], `${baseUrl} registers once opted in`);
+            assert.deepEqual(skipped, []);
+        }
+        for (const [label, baseUrl] of [["public", "http://8.8.8.8:8000/v1"], ["cgnat", "http://100.64.0.1:11434/v1"], ["credentials", "http://user:pw@10.0.0.9:8000/v1"], ["recursion", "http://10.0.0.9:8000/__bili/v1"]] as const) {
+            const { registered, skipped } = parseAgentProviderReport(report(baseUrl));
+            assert.deepEqual(Object.keys(registered), [], label);
+            assert.equal(skipped.length, 1, label);
+            assert.match(skipped[0].reason, /must be HTTPS \(or loopback HTTP\)/, label);
+        }
+    } finally {
+        if (prev === undefined) delete process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+        else process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS = prev;
+    }
+});
+
+// #2984: the host-side pre-skip is the plugin's own copy of that decision — the
+// one it makes before handing a key to a plaintext socket — so it reads the same
+// switch. Skipped providers are still named locally, and the added hint stays
+// out of the terminal (#2831).
+test("#2984 pi reportAgentProviders reports a private provider once the operator opts in", async () => {
+    const realFetch = globalThis.fetch;
+    const prevProxy = process.env.BILLION_CONTEXT_PROXY;
+    const prevSwitch = process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+    process.env.BILLION_CONTEXT_PROXY = "http://127.0.0.1:8787";
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const termLines: string[] = [];
+    const realWarn = console.warn, realError = console.error, realLog = console.log;
+    const sink = (...args: unknown[]) => { termLines.push(args.map(String).join(" ")); };
+    console.warn = sink; console.error = sink; console.log = sink;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+        return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    const ctx = {
+        model: { baseUrl: "http://127.0.0.1:8787", api: "not-virtual" },
+        modelRegistry: {
+            getAll: () => [{ id: "qwen3-coder", provider: "lan", api: "openai-completions" }, { id: "llama", provider: "plainhttp", api: "openai-completions" }],
+            getProvider: (name: string) => ({
+                lan: { baseUrl: "http://192.168.124.39:8001/v1" },
+                plainhttp: { baseUrl: "http://100.64.0.1:11434/v1" },
+            } as Record<string, { baseUrl: string }>)[name],
+            getProviderAuthStatus: () => ({ configured: true, source: "environment" }),
+            getApiKeyForProvider: async (name: string) => `key-${name}`,
+        },
+    } as unknown as Ctx;
+    const loggedSince = (mark: string) => (existsSync(PROVIDERS_LOG_FILE) ? readFileSync(PROVIDERS_LOG_FILE, "utf8") : "").slice(mark.length);
+    try {
+        delete process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+        const before = existsSync(PROVIDERS_LOG_FILE) ? readFileSync(PROVIDERS_LOG_FILE, "utf8") : "";
+        assert.equal(await reportAgentProviders(ctx, "pi"), true);
+        assert.equal(calls.length, 0, "every provider pre-skipped: nothing to report");
+        const offLog = loggedSince(before);
+        assert.ok(offLog.includes('provider "lan" not reported'), "the private host is still named locally");
+        assert.ok(offLog.includes("plain-HTTP non-loopback"));
+        assert.equal(termLines.length, 0, "#2831: the pre-skip never reaches the terminal");
+
+        process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS = "1";
+        const before2 = existsSync(PROVIDERS_LOG_FILE) ? readFileSync(PROVIDERS_LOG_FILE, "utf8") : "";
+        assert.equal(await reportAgentProviders(ctx, "pi"), true);
+        assert.equal(calls.length, 1, "the private provider is worth a POST now");
+        const body = calls[0].body as { providers: Record<string, { baseUrl: string }> };
+        assert.deepEqual(Object.keys(body.providers), ["lan"], "private host admitted, CGNAT still skipped");
+        assert.equal(body.providers.lan.baseUrl, "http://192.168.124.39:8001/v1");
+        const onLog = loggedSince(before2);
+        assert.ok(!onLog.includes('provider "lan" not reported'), "no pre-skip for an admitted host");
+        assert.ok(onLog.includes('provider "plainhttp" not reported'), "CGNAT keeps the original skip");
+        assert.deepEqual(Object.keys(parseAgentProviderReport(calls[0].body).registered), ["lan"], "client and server agree on the same body");
+        assert.equal(termLines.length, 0, "#2984: the added hint stays off the terminal too");
+    } finally {
+        globalThis.fetch = realFetch;
+        console.warn = realWarn; console.error = realError; console.log = realLog;
+        if (prevProxy === undefined) delete process.env.BILLION_CONTEXT_PROXY;
+        else process.env.BILLION_CONTEXT_PROXY = prevProxy;
+        if (prevSwitch === undefined) delete process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS;
+        else process.env.BILI_ALLOW_PRIVATE_HTTP_PROVIDERS = prevSwitch;
+    }
+});
