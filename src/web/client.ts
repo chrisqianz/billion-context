@@ -101,8 +101,13 @@ export const WEB_CLIENT = `(function () {
         const displayOnlyN = Math.max(0, Math.min(typeof c.displayOnly === "number" ? c.displayOnly : 0, pluginN - siblingN));
         const suspectedN = Math.max(0, Math.min(typeof c.suspected === "number" ? c.suspected : 0, pluginN - siblingN - displayOnlyN));
         const confirmedTpN = Math.max(0, pluginN - siblingN - displayOnlyN - suspectedN);
-        const confirmedNativeN = (kinds["native-compaction"] || 0) + (kinds["native-compaction-inferred"] || 0); // #2709: inferred landings share the confirmed-native remediation tier
-        const signalN = Math.max(0, c.events - pluginN - confirmedNativeN);
+        // #2709/#2912: only an attribution-only (inferred) landing is CONFIRMED evidence — a
+        // marker-detected landing (native-compaction) was already rebased onto (#2372/#2432),
+        // so it is handled stock, not an alarm. Kept out of signalN too, else it masquerades
+        // as an unexplained rewrite (warned-on-impact policy, #2912).
+        const confirmedNativeN = kinds["native-compaction-inferred"] || 0;
+        const handledNativeN = kinds["native-compaction"] || 0;
+        const signalN = Math.max(0, c.events - pluginN - confirmedNativeN - handledNativeN);
         const whatParts = [];
         if (confirmedTpN > 0) whatParts.push(t("conflict.what_plugin"));
         if (suspectedN > 0) whatParts.push(t("conflict.what_suspected"));
@@ -136,7 +141,7 @@ export const WEB_CLIENT = `(function () {
         // #2430/#2545: a ledger naming ONLY bili's own siblings or verified read-only viewers
         // stands down completely — compatible family / non-compressors, not conflicts.
         const siblingOnly = !hasConfirmed && suspectedN === 0 && signalN === 0 && siblingN > 0;
-        const neutralOnly = !hasConfirmed && suspectedN === 0 && signalN === 0 && (siblingN + displayOnlyN) > 0;
+        const neutralOnly = !hasConfirmed && suspectedN === 0 && signalN === 0 && (siblingN + displayOnlyN + handledNativeN) > 0; // #2912: fully-handled (recovered-native-only) ledger also stands down
         return { onKey: onKey, riskKey: riskKey, onText: onText, riskText: riskText, hasConfirmed: hasConfirmed, siblingOnly: siblingOnly, neutralOnly: neutralOnly, what: whatParts.join(t("conflict.what_join")), active: active, activeConfirmed: activeConfirmed };
     }
     window.bili_conflictLine = bili_conflictLine;
@@ -1833,8 +1838,6 @@ export const WEB_CLIENT = `(function () {
             const cp = compressOf(draft);
             dbg.inp.checked = draft.debug === true;
             ptRow.inp.checked = draft.passthrough === true;
-            dsgRow.inp.checked = Boolean(draft.dsh && draft.dsh.allowDshCompaction === true);
-            dsgWarnNote.hidden = !(draft.dsh && draft.dsh.allowDshCompaction === true);
             const pv = (cp && typeof cp.promptPack === "string") ? cp.promptPack : "default";
             while (packSel.options.length > 0) packSel.removeChild(packSel.lastChild);
             ["default", "lean"].forEach((name) => {
@@ -1914,26 +1917,6 @@ export const WEB_CLIENT = `(function () {
         qCtrls.push(ptRow.inp);
         ptRow.inp.addEventListener("change", () => commit((d) => { if (ptRow.inp.checked) d.passthrough = true; else delete d.passthrough; }));
         void ptRow.ctl;
-        // #2028: env BILI_ALLOW_DSH_COMPACTION outranks the file — keep the control out
-        // of qCtrls in that case so quickBroken's blanket enable/disable never re-enables it.
-        const dsgEnvForced = Boolean(cfg.allowDshCompaction && cfg.allowDshCompaction.source === "env");
-        const dsgRow = row("quick-dsg", t("cfg.q_dsh_compact"));
-        if (!dsgEnvForced) qCtrls.push(dsgRow.inp);
-        const dsgWarnNote = document.createElement("div");
-        dsgWarnNote.style.cssText = "margin:-6px 0 4px;font-size:12px;color:#9a6700";
-        dsgWarnNote.textContent = t("cfg.q_dsh_compact_warn");
-        dsgWarnNote.hidden = true;
-        box.appendChild(dsgWarnNote);
-        const dsgEnvNote = document.createElement("div");
-        dsgEnvNote.style.cssText = "margin:-6px 0 4px;font-size:12px;color:#57606a";
-        dsgEnvNote.textContent = t("cfg.q_dsh_compact_env");
-        dsgEnvNote.hidden = true;
-        box.appendChild(dsgEnvNote);
-        dsgRow.inp.addEventListener("change", () => commit((d) => {
-            if (dsgRow.inp.checked) { if (!d.dsh || typeof d.dsh !== "object") d.dsh = {}; d.dsh.allowDshCompaction = true; }
-            else { if (d.dsh) { delete d.dsh.allowDshCompaction; if (Object.keys(d.dsh).length === 0) delete d.dsh; } }
-        }));
-        if (dsgEnvForced) { dsgRow.inp.disabled = true; dsgEnvNote.hidden = false; }
         const packSel = document.createElement("select");
         packSel.className = "field-input mono";
         qCtrls.push(packSel);

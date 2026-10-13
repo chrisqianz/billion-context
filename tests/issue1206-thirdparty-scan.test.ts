@@ -561,18 +561,27 @@ test("isDisplayOnlyConflictDetail neutralizes stock records of verified read-onl
     assert.ok(!isDisplayOnlyConflictDetail("event 5"), "non-plugin shapes never classify");
 });
 
-test("summarizeConflicts counts displayOnly and activeConfirmed tiers (#2545)", () => {
+test("summarizeConflicts counts displayOnly and activeConfirmed tiers (#2545/#2912)", () => {
     const a = makeSession();
     recordConflict(a, "third-party-plugin", "pi: npm:pi-context-inspector (C:\\Users\\Administrator\\.pi\\agent\\settings.json) [suspected]");
     recordConflict(a, "third-party-plugin", "pi: npm:context-forge (/home/dog/.pi/agent/settings.json) [suspected]");
     const b = makeSession();
-    recordConflict(b, "native-compaction", "codex: compaction_trigger item");
+    // #2912: only an INFERRED landing is confirmed-tier now — a marker-detected one was already rebased onto.
+    recordConflict(b, "native-compaction-inferred", "codex: compaction framing absent on replay; bili refused 3 client-native call(s) (#2709)");
     const s = summarizeConflicts([a, b]);
     assert.equal(s.events, 3);
     assert.equal(s.suspected, 2);
     assert.equal(s.displayOnly, 1, "the inspector record classifies as display-only (overlaps suspected)");
-    assert.equal(s.activeConfirmed, 1, "only the native-compaction landing is confirmed-tier");
+    assert.equal(s.activeConfirmed, 1, "only the INFERRED native-compaction landing is confirmed-tier");
     assert.equal(s.active, 3);
+});
+
+test("#2912: a pure recovered (marker-detected) native-compaction ledger is NOT confirmed-tier", () => {
+    const r = makeSession();
+    recordConflict(r, "native-compaction", "dsh native compaction: 12/14 covered id(s) replaced; ACP state rebased (#2432)");
+    const s = summarizeConflicts([r]);
+    assert.equal(s.events, 1);
+    assert.equal(s.activeConfirmed, 0, "recovered landing already rebased onto (#2372/#2432) — handled stock, not confirmed evidence");
 });
 
 test("formatConflictSection: display-only-only ledger stands down neutrally (#2545)", () => {
