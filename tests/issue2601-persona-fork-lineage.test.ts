@@ -1,3 +1,10 @@
+// #2989 RETIRED-MODULE PIN: this suite drives src/persona-anchor.ts,
+// which production stopped wiring in #2815 (ddf366b4 swapped the lane to
+// personaConversationOrder in src/session-resolve.ts). It still pins the
+// module's contract while it ships in-tree, but it CANNOT see regressions
+// in the live resolver — the live twins live in
+// tests/session-resolve-twins.test.ts. Do not extend this file; add live
+// twins instead.
 // #2601: model-switch lineage. A model/provider switch mid-conversation can
 // re-serialize the SAME history (thinking inlined vs structured block, tool
 // ids re-minted, image placeholder appended/stripped) — byte-exact

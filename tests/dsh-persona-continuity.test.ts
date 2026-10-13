@@ -1,3 +1,10 @@
+// #2989 RETIRED-MODULE PIN: this suite drives src/persona-anchor.ts,
+// which production stopped wiring in #2815 (ddf366b4 swapped the lane to
+// personaConversationOrder in src/session-resolve.ts). It still pins the
+// module's contract while it ships in-tree, but it CANNOT see regressions
+// in the live resolver — the live twins live in
+// tests/session-resolve-twins.test.ts. Do not extend this file; add live
+// twins instead.
 // #2241: continuity-aware dsh persona anchor. The original fingerprint
 // (db21309d) forked on ANY system-text change under the id — built on the
 // assumption that dsh composes its main system once per session. `/model`

@@ -1,3 +1,10 @@
+// #2989 RETIRED-MODULE PIN (see tests/session-resolve-twins.test.ts for
+// the live twins). NOTE the deliberate divergence pinned there: the LIVE
+// resolver's header-corroborated absorption is LOOSER than this module —
+// it absorbs ANY persona-text change coinciding with a declared model
+// switch (#2601/#2817), while this module requires the line-confined diff
+// asserted below. The strict cases here ("extra changed lines ... keeps
+// forking") fork in this module but MIGRATE in the live resolver.
 // #2601 B': header-corroborated model-drift absorption. With #2719's
 // churn-tolerant continuity, a plain model switch MIGRATES the persona
 // anchor. The residual fork shape is the CONJUNCTION: the model switch

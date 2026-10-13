@@ -30,6 +30,7 @@ import type { ProxyOptions } from "../src/config.ts";
 import type { CompressSettings } from "../src/config.ts";
 import { withDurableProtection, durableMessageToolPaths, dshSkillCatalogPath } from "../src/durable-message-guards.ts";
 import { resetPersonaAnchorsForTest } from "../src/persona-anchor.ts";
+import { resetSessionOrderForTest } from "../src/session-resolve.ts";
 import { _resetPluginStateForTest } from "../src/plugin.ts";
 import { SessionStore, _setStoreForTest } from "../src/persist.ts";
 import { _setForTest as setRegistryForTest } from "../src/registry.ts";
@@ -113,6 +114,7 @@ async function startRig(compress?: CompressSettings): Promise<Rig> {
     _resetSessionsForTest();
     _resetPluginStateForTest();
     resetPersonaAnchorsForTest();
+    resetSessionOrderForTest(); // #2989: the LIVE identity state lives in session-resolve skeletons now
     const proxy = await startServer({
         port: 0,
         host: "127.0.0.1",

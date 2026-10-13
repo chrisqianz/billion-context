@@ -32,6 +32,7 @@ const { _setForTest: setRegistryForTest } = await import("../src/registry.ts");
 const { _resetSessionsForTest } = await import("../src/session.ts");
 const { conversationHeaderSource, instructionsFingerprintApplies } = await import("../src/session-id.ts");
 const { resetPersonaAnchorsForTest } = await import("../src/persona-anchor.ts");
+const { resetSessionOrderForTest } = await import("../src/session-resolve.ts");
 
 after(() => {
     delete process.env.XDG_STATE_HOME;
@@ -358,6 +359,7 @@ test("e2e #2250: codex instructions drift CARRIES the compression state across t
     _resetSessionsForTest();
     setRegistryForTest({});
     resetPersonaAnchorsForTest();
+    resetSessionOrderForTest(); // #2989: the LIVE identity state lives in session-resolve skeletons now
 
     const TASK_ID = "codex-task-id-2250-fold";
     const headers = {
@@ -436,6 +438,7 @@ test("e2e #2250: claude-over-Responses instructions drift with continuing histor
     _resetSessionsForTest();
     setRegistryForTest({});
     resetPersonaAnchorsForTest();
+    resetSessionOrderForTest(); // #2989: the LIVE identity state lives in session-resolve skeletons now
 
     const CLAUDE_ID = "claude-code-uuid-2250";
     const headers = { "content-type": "application/json", "x-claude-code-session-id": CLAUDE_ID };
@@ -473,6 +476,7 @@ test("e2e #2250: codex instructions drift with CONTINUING history keeps ONE sess
     _resetSessionsForTest();
     setRegistryForTest({});
     resetPersonaAnchorsForTest();
+    resetSessionOrderForTest(); // #2989: the LIVE identity state lives in session-resolve skeletons now
 
     const TASK_ID = "codex-task-id-2250";
     const headers = {
